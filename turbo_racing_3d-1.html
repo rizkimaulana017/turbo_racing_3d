@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turbo Racing 3D</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#08101e;color:#fff;font-family:Arial,sans-serif;text-align:center;overflow-x:hidden}
+header{padding:13px;background:linear-gradient(135deg,#10203d,#174d70);border-bottom:2px solid #00eaff}
+h1{font-size:25px;margin:0;letter-spacing:2px}h1 span{color:#00eaff}.sub{font-size:11px;color:#b7d7f3;margin-top:5px}
+#hud{display:flex;gap:5px;padding:8px 4px;background:#101a2c}
+.stat{flex:1;padding:8px 2px;border-radius:9px;background:#1b2b45;font-size:11px}.stat b{display:block;color:#00eaff;font-size:16px;margin-top:4px}
+#gamebox{position:relative;max-width:480px;width:100%;margin:auto}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:18px;background:#061020b8}
+.panel{max-width:330px;width:100%;padding:22px 18px;border:1px solid #00eaff;border-radius:20px;background:linear-gradient(145deg,#173052,#090f20);box-shadow:0 0 25px #00cfff30}
+.panel h2{font-size:28px;color:#00eaff;margin:0 0 10px}.panel p{font-size:13px;line-height:1.7;color:#d8e9fb}
+button{border:0;border-radius:12px;padding:13px 18px;font-weight:bold;font-size:15px;cursor:pointer;touch-action:manipulation}
+.mainbtn{width:100%;margin-top:7px;color:#06101d;background:linear-gradient(90deg,#00eaff,#67ffbd)}
+#controls{display:flex;justify-content:center;align-items:center;gap:14px;padding:12px 14px 4px}
+.ctrl{width:86px;height:58px;font-size:25px;color:#fff;background:linear-gradient(145deg,#263f65,#101a30);border:1px solid #00dfff}
+#gas{height:58px;max-width:130px;flex:1;background:linear-gradient(90deg,#00eaff,#68ffb4);color:#06101d;font-size:13px}
+.hint{font-size:10px;color:#91a8c7;padding:5px 12px 12px}.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header><h1>🏁 TURBO <span>RACING</span></h1><div class="sub">3D HIGHWAY • RACE TO THE TOP</div></header>
+<div id="hud">
+ <div class="stat">LEVEL<b id="level">1 / 5</b></div>
+ <div class="stat">SKOR<b id="score">0</b></div>
+ <div class="stat">KECEPATAN<b id="speed">120</b></div>
+ <div class="stat">NYAWA<b id="lives">❤️❤️❤️</b></div>
+</div>
+<div id="gamebox">
+ <canvas id="game" width="480" height="640"></canvas>
+ <div id="overlay"><div class="panel">
+  <h2 id="panelTitle">TURBO RACING</h2>
+  <p id="panelText">Siap jadi pembalap terbaik?<br>Hindari mobil lawan, kumpulkan skor, dan taklukkan 5 level balapan!</p>
+  <button class="mainbtn" id="start">▶ MULAI BALAP</button>
+ </div></div>
+</div>
+<div id="controls">
+ <button class="ctrl" id="left">◀</button><button id="gas">⚡ GAS POL!</button><button class="ctrl" id="right">▶</button>
+</div>
+<div class="hint">Gunakan tombol di layar atau tombol panah keyboard untuk mengemudi.</div>
+<script>
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),W=480,H=640;
+const $=id=>document.getElementById(id);
+let running=false,score=0,level=1,lives=3,frame=0,roadOffset=0,spawnTimer=0,playerX=0,enemies=[],keys={left:false,right:false,gas:false},lastTime=0,invincible=0;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function updateHUD(){ $('level').textContent=level+' / 5';$('score').textContent=Math.floor(score);$('speed').textContent=120+(level-1)*25;$('lives').textContent='❤️'.repeat(lives)+'🖤'.repeat(3-lives);}
+function roadWidth(y){return 90+y/H*310}
+function roadCenter(y){return W/2+Math.sin(roadOffset*.0007)*10*y/H}
+function laneX(lane,y){return roadCenter(y)+(lane-1)*roadWidth(y)*.29}
+function poly(points,color){ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(points[0][0],points[0][1]);for(let i=1;i<points.length;i++)ctx.lineTo(points[i][0],points[i][1]);ctx.closePath();ctx.fill()}
+function background(){
+ let sky=ctx.createLinearGradient(0,0,0,350);sky.addColorStop(0,'#1685c7');sky.addColorStop(.7,'#9cecff');sky.addColorStop(1,'#e4fbff');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ ctx.fillStyle='#fff4ad';ctx.beginPath();ctx.arc(390,72,28,0,Math.PI*2);ctx.fill();
+ // distant city
+ for(let i=0;i<19;i++){let x=i*27-5,bw=17+(i*13%16),bh=45+(i*37%95),y=300-bh;ctx.fillStyle=i%2?'#579db4':'#7dbdce';ctx.fillRect(x,y,bw,bh);ctx.fillStyle='#d8f6ff';for(let wy=y+10;wy<292;wy+=15)for(let wx=x+4;wx<x+bw-3;wx+=9){ctx.fillRect(wx,wy,4,6)}}
+ // grass
+ ctx.fillStyle='#35a85a';ctx.fillRect(0,290,W,350);
+ // road perspective
+ poly([[190,285],[290,285],[490,640],[-10,640]],'#303744');
+ poly([[185,285],[191,285],[-5,640],[-20,640]],'#f7f7f7');
+ poly([[289,285],[295,285],[500,640],[485,640]],'#f7f7f7');
+ poly([[190,285],[194,285],[-1,640],[-7,640]],'#ed4353');
+ poly([[286,285],[290,285],[487,640],[481,640]],'#ed4353');
+ // dashed lane markings in perspective
+ for(let i=0;i<12;i++){let t=((i/12+roadOffset/650)%1),y=285+t*t*355;let h=4+t*19;let x=roadCenter(y);ctx.fillStyle='#f5f7f8';ctx.fillRect(x-3-t*2,y,6+t*4,h)}
+ // roadside trees
+ for(let side of [-1,1])for(let i=0;i<8;i++){let t=((i/8+roadOffset/500)%1),y=295+t*t*345,x=roadCenter(y)+side*(roadWidth(y)*.57+10);let s=.18+t*.8;ctx.fillStyle='#754b32';ctx.fillRect(x-3*s,y-23*s,6*s,25*s);ctx.fillStyle=i%2?'#126c42':'#16834a';ctx.beginPath();ctx.arc(x,y-32*s,15*s,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x-8*s,y-25*s,10*s,0,Math.PI*2);ctx.fill()}
+}
+function car(x,y,w,h,color,player=false){
+ ctx.save();ctx.translate(x,y);
+ // shadow
+ ctx.fillStyle='#0007';ctx.beginPath();ctx.ellipse(0,h*.43,w*.72,h*.18,0,0,Math.PI*2);ctx.fill();
+ // tires
+ ctx.fillStyle='#10131a';ctx.fillRect(-w*.52,-h*.25,w*.18,h*.48);ctx.fillRect(w*.34,-h*.25,w*.18,h*.48);ctx.fillRect(-w*.52,h*.15,w*.18,h*.38);ctx.fillRect(w*.34,h*.15,w*.18,h*.38);
+ // body 3D shape
+ poly([[-w*.43,h*.35],[-w*.48,-h*.1],[-w*.32,-h*.42],[w*.32,-h*.42],[w*.48,-h*.1],[w*.43,h*.35]],color);
+ poly([[-w*.31,-h*.17],[-w*.20,-h*.36],[w*.20,-h*.36],[w*.31,-h*.17]],'#a9e8ff');
+ poly([[-w*.29,-h*.12],[w*.29,-h*.12],[w*.35,h*.19],[-w*.35,h*.19]],player?'#c5162d':'#18273b');
+ ctx.fillStyle=player?'#ff5365':'#dce7ef';ctx.fillRect(-w*.34,h*.23,w*.18,h*.07);ctx.fillRect(w*.16,h*.23,w*.18,h*.07);
+ ctx.fillStyle='#fff';ctx.fillRect(-w*.09,-h*.31,w*.18,h*.035);
+ if(player){ctx.fillStyle='#10131a';ctx.fillRect(-w*.13,-h*.44,w*.26,h*.07)}
+ ctx.restore();
+}
+function draw(){
+ background();
+ // opponents scale according to perspective position
+ enemies.sort((a,b)=>a.y-b.y);
+ for(const e of enemies){let t=e.y/H,w=19+t*23,h=34+t*40;car(e.x,e.y,w,h,e.color,false)}
+ let px=roadCenter(560)+playerX*105;
+ if(invincible%10<7)car(px,555,56,94,'#ff263e',true);
+ // HUD overlay in canvas
+ ctx.fillStyle='#071426aa';ctx.fillRect(12,12,145,33);ctx.fillStyle='#fff';ctx.font='bold 13px Arial';ctx.fillText('🏁  TURBO MODE',22,33);
+}
+function spawnEnemy(){let lane=Math.floor(Math.random()*3);enemies.push({lane,x:laneX(lane,310),y:300,color:['#00c9ff','#ffbf35','#a66bff','#f5f5f5','#32e875'][Math.floor(Math.random()*5)],passed:false})}
+function endGame(win=false){
+ running=false;keys={left:false,right:false,gas:false};$('overlay').classList.remove('hidden');
+ $('panelTitle').textContent=win?'🏆 JUARA BALAP!':'💥 GAME OVER';
+ $('panelText').innerHTML=win?'Keren! Kamu berhasil menyelesaikan semua 5 level!<br>Skor akhir: <b>'+Math.floor(score)+'</b>':'Skor kamu: <b>'+Math.floor(score)+'</b><br>Kamu mencapai level '+level+'. Ayo coba lagi!';
+ $('start').textContent='↻ MAIN LAGI';
+}
+function startGame(){score=0;level=1;lives=3;frame=0;roadOffset=0;spawnTimer=0;playerX=0;enemies=[];invincible=0;running=true;lastTime=performance.now();$('overlay').classList.add('hidden');updateHUD();requestAnimationFrame(loop)}
+function loop(now){
+ if(!running)return;
+ let dt=Math.min((now-lastTime)/16.67,2);lastTime=now;frame+=dt;
+ let base=2.7+(level-1)*.55;
+ if(keys.left)playerX-=.055*dt;if(keys.right)playerX+=.055*dt;playerX=clamp(playerX,-1.15,1.15);
+ roadOffset+=base*dt*3;
+ spawnTimer+=dt;
+ if(spawnTimer>Math.max(22,62-level*7)){spawnEnemy();spawnTimer=0}
+ for(let e of enemies){
+   e.y+=base*dt*(2.2+level*.23);
+   e.x=laneX(e.lane,e.y);
+   if(!e.passed&&e.y>560){e.passed=true;score+=10}
+   let px=roadCenter(560)+playerX*105;
+   if(!e.hit&&Math.abs(e.y-555)<43&&Math.abs(e.x-px)<43){
+     e.hit=true;lives--;invincible=24;updateHUD();
+     if(lives<=0){draw();endGame();return}
+   }
+ }
+ enemies=enemies.filter(e=>e.y<690);
+ if(invincible>0)invincible-=dt;
+ score+=.04*dt*(1+level*.3);
+ let newLevel=Math.min(5,1+Math.floor(score/250));
+ if(newLevel>level){level=newLevel;updateHUD()}
+ if(score>=1250){draw();updateHUD();endGame(true);return}
+ updateHUD();draw();requestAnimationFrame(loop)
+}
+$('start').addEventListener('click',startGame);
+function bindButton(id,key){let el=$(id);el.addEventListener('pointerdown',e=>{e.preventDefault();keys[key]=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>el.addEventListener(ev,()=>keys[key]=false))}
+bindButton('left','left');bindButton('right','right');bindButton('gas','gas');
+window.addEventListener('keydown',e=>{if(['ArrowLeft','a','A'].includes(e.key))keys.left=true;if(['ArrowRight','d','D'].includes(e.key))keys.right=true;if(e.key==='ArrowUp'||e.key===' ')keys.gas=true});
+window.addEventListener('keyup',e=>{if(['ArrowLeft','a','A'].includes(e.key))keys.left=false;if(['ArrowRight','d','D'].includes(e.key))keys.right=false;if(e.key==='ArrowUp'||e.key===' ')keys.gas=false});
+background();car(240,555,56,94,'#ff263e',true);
+</script>
+</body>
+</html>
